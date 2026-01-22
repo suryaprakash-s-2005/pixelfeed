@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const API = axios.create({
-  baseURL: "https://pixelfeed-backend-api.onrender.com/api",
+  baseURL: "https://pixelfeed-backend-api.onrender.com/",
 });
 
 API.interceptors.request.use((config) => {
