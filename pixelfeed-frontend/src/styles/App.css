@@ -1,0 +1,5 @@
+body { margin: 0; font-family: Arial; background:#fafafa; }
+.container { max-width: 700px; margin:auto; padding:20px; }
+input, textarea { width:100%; padding:8px; margin:5px 0; }
+button { padding:8px 12px; margin-top:5px; cursor:pointer; }
+img { border:1px solid #ddd; border-radius:4px; }
