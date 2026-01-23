@@ -12,13 +12,65 @@ export default function Generate() {
 
   const [previewFile, setPreviewFile] = useState(null);
 
+  // Helper to process and compress images (handles both File objects and Base64 strings)
+  const processAndCompressImage = (inputSource) => {
+    return new Promise((resolve, reject) => {
+      const imgElement = new Image();
+
+      // Handle File object (for manual upload) or Data URL (for AI)
+      if (inputSource instanceof File) {
+        const reader = new FileReader();
+        reader.readAsDataURL(inputSource);
+        reader.onload = (e) => (imgElement.src = e.target.result);
+        reader.onerror = reject;
+      } else if (typeof inputSource === 'string') {
+        // If it's already a base64 string without prefix, add it. 
+        // If it has a prefix, use it as is.
+        imgElement.src = inputSource.startsWith('data:')
+          ? inputSource
+          : `data:image/jpeg;base64,${inputSource}`;
+      } else {
+        reject(new Error("Invalid input source"));
+      }
+
+      imgElement.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 1024;
+
+        // Calculate new dimensions (never scale up, only down)
+        let width = imgElement.width;
+        let height = imgElement.height;
+
+        if (width > MAX_WIDTH) {
+          height = (height * MAX_WIDTH) / width;
+          width = MAX_WIDTH;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(imgElement, 0, 0, width, height);
+
+        // Compress to JPEG with 0.7 quality
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.7);
+        resolve(compressedDataUrl.split(',')[1]); // Return only base64 data
+      };
+
+      imgElement.onerror = (e) => reject(e);
+    });
+  };
+
   const generate = async () => {
     if (!prompt.trim()) return;
     setLoading(true);
     setImg(null);
     try {
       const res = await API.post("/posts/generate", { prompt });
-      setImg(res.data.imageBase64);
+      // Compress the AI generated image before setting it to state
+      // This ensures we don't upload a massive file later
+      const compressed = await processAndCompressImage(res.data.imageBase64);
+      setImg(compressed);
     } catch (err) {
       setModal({ isOpen: true, title: "Error", msg: err.response?.data?.message || "Generation failed", type: "danger" });
     } finally {
@@ -26,42 +78,15 @@ export default function Generate() {
     }
   };
 
-  const compressImage = (file) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const imgElement = new Image();
-        imgElement.src = event.target.result;
-        imgElement.onload = () => {
-          const canvas = document.createElement("canvas");
-          const MAX_WIDTH = 1024;
-          const scaleSize = MAX_WIDTH / imgElement.width;
-          canvas.width = MAX_WIDTH;
-          canvas.height = imgElement.height * scaleSize;
-
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
-
-          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.7);
-          resolve(compressedDataUrl.split(',')[1]);
-        };
-      };
-    });
-  };
-
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
       if (file.size > 10 * 1024 * 1024) return alert("File too large (max 10MB)");
 
-      // Show local preview immediately (optional, but good UX if we had a separate preview state)
-      // For now we wait for compression which is fast enough for <10MB
-
       try {
-        const compressedBase64 = await compressImage(file);
+        const compressedBase64 = await processAndCompressImage(file);
         setImg(compressedBase64);
-        setPreviewFile(URL.createObjectURL(file)); // Keep original for preview if needed, or just use base64
+        setPreviewFile(URL.createObjectURL(file));
       } catch (error) {
         console.error("Compression failed", error);
         alert("Failed to process image");
