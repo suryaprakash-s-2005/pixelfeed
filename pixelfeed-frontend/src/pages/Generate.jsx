@@ -7,6 +7,7 @@ export default function Generate() {
   const [prompt, setPrompt] = useState("");
   const [img, setImg] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isPosting, setIsPosting] = useState(false);
   const [modal, setModal] = useState({ isOpen: false, title: "", msg: "" });
 
   const [previewFile, setPreviewFile] = useState(null);
@@ -25,21 +26,53 @@ export default function Generate() {
     }
   };
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) return alert("File too large (max 5MB)");
+  const compressImage = (file) => {
+    return new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
-      reader.onloadend = () => {
-        setImg(reader.result.split(',')[1]);
-        setPreviewFile(reader.result);
+      reader.onload = (event) => {
+        const imgElement = new Image();
+        imgElement.src = event.target.result;
+        imgElement.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 1024;
+          const scaleSize = MAX_WIDTH / imgElement.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = imgElement.height * scaleSize;
+
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
+
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.7);
+          resolve(compressedDataUrl.split(',')[1]);
+        };
       };
+    });
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) return alert("File too large (max 10MB)");
+
+      // Show local preview immediately (optional, but good UX if we had a separate preview state)
+      // For now we wait for compression which is fast enough for <10MB
+
+      try {
+        const compressedBase64 = await compressImage(file);
+        setImg(compressedBase64);
+        setPreviewFile(URL.createObjectURL(file)); // Keep original for preview if needed, or just use base64
+      } catch (error) {
+        console.error("Compression failed", error);
+        alert("Failed to process image");
+      }
     }
   };
 
   const sharePost = async () => {
     if (!prompt.trim()) return setModal({ isOpen: true, title: "Missing Caption", msg: "Please add a description!", type: "info" });
+
+    setIsPosting(true);
     try {
       await API.post("/posts/create", { prompt, imageBase64: img });
       setModal({ isOpen: true, title: "Success", msg: "Masterpiece shared to the community feed! 🎨", type: "success" });
@@ -48,6 +81,8 @@ export default function Generate() {
       setPreviewFile(null);
     } catch (err) {
       setModal({ isOpen: true, title: "Error", msg: "Failed to share post", type: "danger" });
+    } finally {
+      setIsPosting(false);
     }
   };
 
@@ -193,11 +228,26 @@ export default function Generate() {
               <div style={{ display: "flex", justifyContent: "center", gap: "20px" }}>
                 <button
                   onClick={sharePost}
-                  style={{ background: "var(--accent)", color: "black", padding: "12px 30px", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "10px" }}
+                  disabled={isPosting}
+                  style={{
+                    background: isPosting ? "#555" : "var(--accent)",
+                    color: isPosting ? "#aaa" : "black",
+                    padding: "12px 30px",
+                    fontSize: "1.1rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    cursor: isPosting ? "not-allowed" : "pointer",
+                    opacity: isPosting ? 0.7 : 1
+                  }}
                 >
-                  Post to Feed <span className="material-symbols-outlined">send</span>
+                  {isPosting ? (
+                    <>Posting... <span className="material-symbols-outlined spin">hourglass_empty</span></>
+                  ) : (
+                    <>Post to Feed <span className="material-symbols-outlined">send</span></>
+                  )}
                 </button>
-                {activeTab === "ai" && (
+                {activeTab === "ai" && !isPosting && (
                   <button
                     onClick={() => setImg(null)}
                     style={{ background: "transparent", border: "1px solid var(--glass-border)", color: "var(--text-secondary)", padding: "12px 30px" }}
@@ -212,6 +262,8 @@ export default function Generate() {
       </div>
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
